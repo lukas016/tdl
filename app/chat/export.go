@@ -12,6 +12,7 @@ import (
 	"github.com/gotd/contrib/middleware/ratelimit"
 	"github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/telegram/query"
+	"github.com/gotd/td/telegram/query/channels/participants"
 	"github.com/gotd/td/telegram/query/messages"
 	"github.com/gotd/td/tg"
 	"github.com/jedib0t/go-pretty/v6/progress"
@@ -42,14 +43,16 @@ type ExportOptions struct {
 	WithContent bool
 	Raw         bool
 	All         bool
+	Users       bool
 }
 
 type Message struct {
 	ID   int    `json:"id"`
 	Type string `json:"type"`
-	File string `json:"file"`
+	File string `json:"file,omitempty"`
 	Date int    `json:"date,omitempty"`
 	Text string `json:"text,omitempty"`
+	User string `json:"user,omitempty"`
 }
 
 const (
@@ -111,7 +114,26 @@ func Export(ctx context.Context, opts *ExportOptions) error {
 
 		go pw.Render()
 
+		usersList := map[int64]*tg.User{}
+
+		if opts.Users {
+			ch, ok := peer.(peers.Channel)
+			if ok {
+				iter := participants.NewIterator(query.NewQuery(c.API()).GetParticipants(ch.InputChannel()), 100)
+				for iter.Next(ctx) {
+					el := iter.Value()
+					us, ok := el.User()
+					if !ok {
+						continue
+					}
+
+					usersList[us.ID] = us
+				}
+			}
+		}
+
 		var q messages.Query
+
 		switch {
 		case opts.Thread != 0: // topic messages, reply messages
 			q = query.NewQuery(c.API()).Messages().GetReplies(peer.InputPeer()).MsgID(opts.Thread)
@@ -190,7 +212,8 @@ func Export(ctx context.Context, opts *ExportOptions) error {
 				continue
 			}
 
-			b, err := texpr.Run(filter, covertMessage(m))
+			internalMsg := covertMessage(m)
+			b, err := texpr.Run(filter, internalMsg)
 			if err != nil {
 				return fmt.Errorf("failed to run filter: %w", err)
 			}
@@ -214,6 +237,14 @@ func Export(ctx context.Context, opts *ExportOptions) error {
 				if opts.WithContent {
 					t.Date = m.Date
 					t.Text = m.Message
+				}
+
+				user, ok := usersList[internalMsg.FromID]
+				if ok {
+					if user.Bot {
+						t.User = "Bot: " + user.Username
+					}
+					t.User = user.FirstName + " " + user.LastName + " (" + user.Username + ")"
 				}
 				jsonMessage = t
 			}

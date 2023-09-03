@@ -19,6 +19,7 @@ tdl chat export [flags]
       --reply int       specify channel post id
       --topic int       specify topic id
   -T, --type string     export type. time: timestamp range, id: message id range, last: last N messages: {time|id|last} (default "time")
+      --users           export list of participants users for channel
       --with-content    export with message content
 ```
 
